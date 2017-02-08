@@ -32,13 +32,20 @@ GLuint 	axisVBO[3];
 
 int		winWdth 	= 800,
 		winHeight	= 800,
-		total_faces;
+		total_faces,
+
+		faces_used_for_controls,
+		num_segments_for_triple,
+		faces_used_for_curve;
+
+
 			
 bool	drawRef		= true;
 
 int event_type;
 list<point2D>::iterator event_point;
 
+const int EVENT_INVALID = 0;
 const int EVENT_ADD_POINT = (1 << 0);
 const int EVENT_MOVE_POINT = (1 << 1);
 const int EVENT_REMOVE_POINT = (1 << 2);
@@ -51,11 +58,48 @@ inline bool operator==(const point2D& a, const point2D& b) {
 
 // Geometric
 
+double sx(list<point2D>::iterator it) { return abs(prev(it)->X - it->X); }
+double sy(list<point2D>::iterator it) { return abs(prev(it)->Y - it->Y); }
+double sx(list<point2D>::iterator it, double x) { return abs(it->X - x); }
+double sy(list<point2D>::iterator it, double y) { return abs(it->Y - y); }
+
+double cross_product(list<point2D>::iterator a, list<point2D>::iterator b) {
+    return sx(a)*sy(b) - sx(b)*sy(a);
+}
+
+double cross_product(list<point2D>::iterator it, point2D pt) {
+    return sx(it)*sy(prev(it), pt.Y) - sx(prev(it), pt.X)*sy(it);  
+}
+
+bool in_interval(double a, double l1, double l2) {
+    return (min(l1, l2) <= a && a <= max(l1, l2));
+}
+
+bool point_in_segment(list<point2D>::iterator it, point2D pt) {
+	cout << "cross " << cross_product(it, pt) << endl;
+    return (abs(cross_product(it, pt)) < 1 && in_interval(pt.X, prev(it)->X, it->X) && in_interval(pt.Y, prev(it)->Y, it->Y));
+}
+
+list<point2D>::iterator get_segment(point2D pt) {
+    for(list<point2D>::iterator it = next(points.begin()); it != points.end(); it++)
+        if(point_in_segment(it, pt))
+            return it;
+    return points.end();
+}
+
+list<point2D>::iterator add_point_before(point2D pt, list<point2D>::iterator it) {
+    return points.insert(it, pt);
+}
+
+void move_point(list<point2D>::iterator it, point2D pt) {
+    *it = pt;
+}
+
 void remove_point(list<point2D>::iterator pt) {
-	cout << points.size();
-    cout << " # removed point: (" << pt->X << ", " << pt->Y << ") # ";
+	//cout << points.size();
+    //cout << " # removed point: (" << pt->X << ", " << pt->Y << ") # ";
     points.erase(pt);
-    cout << points.size() << endl;
+    //cout << points.size() << endl;
 }
 
 list<point2D>::iterator point_exists(point2D pt) {
@@ -69,21 +113,6 @@ list<point2D>::iterator point_exists(point2D pt) {
 /// **
 /// ***********************************************************************
 
-void dump_curve() {
-    double t = 0;
-    for(list<point2D>::iterator pt = points.begin(); pt != points.end(); pt++)
-        cout << pt->X << " " << pt->Y << endl;
-    cout << endl;
-    while(t <= 1) {
-        for(list<point2D>::iterator pt = next(points.begin()); next(pt) != points.end(); pt++) {
-            cout << (1-t)*(1-t)*prev(pt)->X + 2*(1-t)*t*pt->X + t*t*next(pt)->X
-                 << " " 
-                 << (1-t)*(1-t)*prev(pt)->Y + 2*(1-t)*t*pt->Y + t*t*next(pt)->Y << endl;
-        }
-        t += delta;
-    }
-}
-
 // OPENGL
 
 void criaVBO() {
@@ -93,12 +122,12 @@ ObjectVA	axis_VA;
 
 	// ========== FACE ============
 
-	int faces_used_for_controls = (np-1)*2;
-	int num_segments_for_triple = 1/delta;
-	int faces_used_for_curve = 2*((np-1)/2)*num_segments_for_triple;
+	faces_used_for_controls = (np-1)*2;
+	num_segments_for_triple = 1/delta;
+	faces_used_for_curve = 2*((np-1)/2)*num_segments_for_triple;
 	total_faces = faces_used_for_controls + faces_used_for_curve;
-	cout << faces_used_for_controls << endl;
-	cout << faces_used_for_curve << endl;
+	//cout << faces_used_for_controls << endl;
+	//cout << faces_used_for_curve << endl;
 
 	axis_VA.vFace = (unsigned int *) malloc((faces_used_for_controls + faces_used_for_curve)*sizeof(unsigned int));
 	if (!axis_VA.vFace)
@@ -107,21 +136,21 @@ ObjectVA	axis_VA;
 	
 	int i;
 	for(i = 0; i < np-1; i++) { // Faces from control segments
-		cout << 2*i << endl;
-		cout << 2*i+1 << endl;
+		//cout << 2*i << endl;
+		//cout << 2*i+1 << endl;
 		axis_VA.vFace[2*i] = i;
 		axis_VA.vFace[2*i+1] = i+1;
 	}
 
     for(int i = 0; i < (np-1)/2; i++) { // Faces from curve
     	for(int t = 0; t < 2*num_segments_for_triple; t += 2) {
-    		cout << faces_used_for_controls+2*num_segments_for_triple*i+t << " " << np+num_segments_for_triple*i+t/2 << endl;
-    		cout << faces_used_for_controls+2*num_segments_for_triple*i+t+1 << " " << np+num_segments_for_triple*i+t/2+1 << endl;
+    		//cout << faces_used_for_controls+2*num_segments_for_triple*i+t << " " << np+num_segments_for_triple*i+t/2 << endl;
+    		//cout << faces_used_for_controls+2*num_segments_for_triple*i+t+1 << " " << np+num_segments_for_triple*i+t/2+1 << endl;
     		axis_VA.vFace[faces_used_for_controls+2*num_segments_for_triple*i+t] = np+num_segments_for_triple*i+t/2;
     		axis_VA.vFace[faces_used_for_controls+2*num_segments_for_triple*i+t+1] = np+num_segments_for_triple*i+t/2+1;
     	}
     }
-    cout << endl;
+    //cout << endl;
 
 	
 
@@ -130,9 +159,9 @@ ObjectVA	axis_VA;
     int used_for_control_points = 3*np;
 	int num_points_for_triple = 1/delta+1;
     int used_for_curve_points = 3*((np-1)/2)*num_points_for_triple;
-    cout << used_for_control_points << endl;
-    cout << num_points_for_triple << endl;
-	cout << used_for_curve_points << endl;
+    //cout << used_for_control_points << endl;
+    //cout << num_points_for_triple << endl;
+	//cout << used_for_curve_points << endl;
 
 
 	axis_VA.vPoint 	= (float *) malloc((used_for_control_points + used_for_curve_points)*sizeof(float));
@@ -142,9 +171,9 @@ ObjectVA	axis_VA;
 	i = 0;
 	for(list<point2D>::iterator pt = points.begin();
 		pt != points.end(); pt++, i++) {
-		cout << 3*i << " " << pt->X << endl;
-		cout << 3*i+1 << " " << pt->Y << endl;
-		cout << 3*i+2 << endl;
+		//cout << 3*i << " " << pt->X << endl;
+		//cout << 3*i+1 << " " << pt->Y << endl;
+		//cout << 3*i+2 << endl;
 		axis_VA.vPoint[3*i] 	= pt->X;
 		axis_VA.vPoint[3*i+1] 	= pt->Y;
 		axis_VA.vPoint[3*i+2] 	= 0;
@@ -155,15 +184,15 @@ ObjectVA	axis_VA;
     for(list<point2D>::iterator pt = next(points.begin()); next(pt) != points.end(); pt++, pt++, i++) { // Points from curve
     	t = 0;
     	for(int j = 0; j < 3*num_points_for_triple; j += 3, t += delta) {
-    		cout << t << endl;
+    		//cout << t << endl;
     		
     		axis_VA.vPoint[used_for_control_points+3*num_points_for_triple*i+j] = (1-t)*(1-t)*prev(pt)->X + 2*(1-t)*t*pt->X + t*t*next(pt)->X;
     		axis_VA.vPoint[used_for_control_points+3*num_points_for_triple*i+j+1] = (1-t)*(1-t)*prev(pt)->Y + 2*(1-t)*t*pt->Y + t*t*next(pt)->Y;
     		axis_VA.vPoint[used_for_control_points+3*num_points_for_triple*i+j+2] = 0.0;
     	
-    		cout << used_for_control_points+3*num_points_for_triple*i+j << " " <<  axis_VA.vPoint[used_for_control_points+3*num_points_for_triple*i+j] << endl;
-    		cout << used_for_control_points+3*num_points_for_triple*i+j+1 << " " << axis_VA.vPoint[used_for_control_points+3*num_points_for_triple*i+j+1] << endl;
-    		cout << used_for_control_points+3*num_points_for_triple*i+j+2 << " " << axis_VA.vPoint[used_for_control_points+3*num_points_for_triple*i+j+2] << endl;
+    		//cout << used_for_control_points+3*num_points_for_triple*i+j << " " <<  axis_VA.vPoint[used_for_control_points+3*num_points_for_triple*i+j] << endl;
+    		//cout << used_for_control_points+3*num_points_for_triple*i+j+1 << " " << axis_VA.vPoint[used_for_control_points+3*num_points_for_triple*i+j+1] << endl;
+    		//cout << used_for_control_points+3*num_points_for_triple*i+j+2 << " " << axis_VA.vPoint[used_for_control_points+3*num_points_for_triple*i+j+2] << endl;
     	}
     	if(next(next(pt)) == points.end())
     		break;
@@ -184,28 +213,26 @@ ObjectVA	axis_VA;
 			axis_VA.vColor[i] = 0.0;
 
 
-		cout << i << " " << axis_VA.vColor[i] << endl;
+		//cout << i << " " << axis_VA.vColor[i] << endl;
 	}
 	
 	axis_VA.vTextCoord 	= NULL;
 	axis_VA.vNormal 	= NULL;
 
-	glGenBuffers(3, axisVBO);
-
 	glBindBuffer(	GL_ARRAY_BUFFER, axisVBO[0]);
 
 	glBufferData(	GL_ARRAY_BUFFER, (used_for_control_points + used_for_curve_points)*sizeof(float), 
-					axis_VA.vPoint, GL_STATIC_DRAW);
+					axis_VA.vPoint, GL_DYNAMIC_DRAW);
 
 	glBindBuffer(	GL_ARRAY_BUFFER, axisVBO[1]);
 
 	glBufferData(	GL_ARRAY_BUFFER, (used_for_control_colors + used_for_curve_colors)*sizeof(float), 
-					axis_VA.vColor, GL_STATIC_DRAW);
+					axis_VA.vColor, GL_DYNAMIC_DRAW);
 
 	glBindBuffer(	GL_ELEMENT_ARRAY_BUFFER, axisVBO[2]);
 
 	glBufferData(	GL_ELEMENT_ARRAY_BUFFER, (faces_used_for_controls + faces_used_for_curve)*sizeof(unsigned int), 
-					axis_VA.vFace, GL_STATIC_DRAW);
+					axis_VA.vFace, GL_DYNAMIC_DRAW);
 	
 	free(axis_VA.vPoint);
 	free(axis_VA.vColor);
@@ -257,7 +284,6 @@ void reshape(int w, int h) {
 /* ************************************************************************* */
 
 void keyboard (unsigned char key, int x, int y) {
-	cout << key << " " << x << " " << y << endl;
 
 	switch (key) {	
 		case 27  	: 	exit(0);
@@ -286,7 +312,18 @@ void handle_initialization(int button, point2D real_coords) {
 				event_point = point_exists(real_coords);
 			} else {
 				//...
+				event_point = point_exists(real_coords);
+				if(event_point != points.end())
+					event_type = EVENT_MOVE_POINT;
+				else {
+					event_type = EVENT_ADD_POINT;
+					list<point2D>::iterator it = get_segment(real_coords);
+					event_point = add_point_before(real_coords, it);					
+				}
 			}
+		break;
+		default:
+			event_type = EVENT_INVALID;
 		break;
 	}
 }
@@ -299,6 +336,10 @@ void handle_closing(int button, point2D real_coords) {
 					if(event_point != points.end() && point_exists(real_coords) == event_point)
 						remove_point(event_point);
 				break;
+				case EVENT_MOVE_POINT:
+				case EVENT_ADD_POINT:
+					move_point(event_point, real_coords);
+				break;
 			}
 		break;
 	}
@@ -310,6 +351,8 @@ void mouse(int button, int state, int x, int y) {
 		handle_initialization(button, get_real_coords(x, y));
 	else
 		handle_closing(button, get_real_coords(x, y));
+	criaVBO();
+	glutPostRedisplay();
 }
 
 /* ************************************************************************* */
@@ -392,7 +435,9 @@ int main(int argc, char *argv[]) {
         points.push_back({x,y});
     }
 
-	initGL(); 
+	initGL();
+
+	glGenBuffers(3, axisVBO);
 	
 	criaVBO();
 	
