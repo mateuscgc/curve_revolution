@@ -27,20 +27,20 @@ OBJFILES = initShaders.o
 	$(CXX) -o $*.o -c $(CXXFLAGS) $(DEFFLAGS) $(INCFLAGS) $*.cpp
 
 # ***********************************************************************************
-all:	soglut draw3D drawCube
+all:	curve_revolution
 
-soglut:	soglut.o
-	@echo "Linking ...."
-	$(CXX)  $(CXXFLAG) $(INCFLAGS) $(LIBPATH) $^ $(LDFLAGS) -o $@
+# soglut:	soglut.o
+# 	@echo "Linking ...."
+# 	$(CXX)  $(CXXFLAG) $(INCFLAGS) $(LIBPATH) $^ $(LDFLAGS) -o $@
 	
-draw3D:	initShaders.o draw3D.o
+curve_revolution:	initShaders.o curve_revolution.o
 	@echo "Linking ...."
 	$(CXX)  $(CXXFLAG) $(INCFLAGS) $(LIBPATH) $^ $(LDFLAGS) -o $@ 
 		
-drawCube:	initShaders.o drawCube.o
-	@echo "Linking ...."
-	$(CXX)  $(CXXFLAG) $(INCFLAGS) $(LIBPATH) $^ $(LDFLAGS) -o $@ 
+# drawCube:	initShaders.o drawCube.o
+# 	@echo "Linking ...."
+# 	$(CXX)  $(CXXFLAG) $(INCFLAGS) $(LIBPATH) $^ $(LDFLAGS) -o $@ 
 		
 clean:	
 	@echo "Clearing ..."
-	rm -f *.o core *.*~ *~ soglut draw3D drawCube
+	rm -f *.o core *.*~ *~ soglut curve_revolution drawCube
