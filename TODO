@@ -1,7 +1,11 @@
--> Junção das curvas
--> Reta para dupla sobrando
--> Ignorar colineares na contagem dos triplos
+-> Algo melhor para representar a curva graficamente ==> OK
+-> conexão gráfica os pontos de controles ==> OK
+-> Remover crash de poucos pontos ==> OK
+
+
+-> Junção das curvas (cubic curve)
+-> Reta para dupla sobrando (cubic curve)
+-> Ignorar colineares na contagem dos triplos (cubic curve)
+
 -> mostrar pontos de controle sobrepostos pela curva (aumentar tamanho)
--> Algo melhor para representar a curva graficamente
--> conexão gráfica os pontos de controles
--> Remover crash de poucos pontos
+-> MOSTRAR MEIO DA TELA
