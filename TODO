@@ -1,11 +1,17 @@
 -> Algo melhor para representar a curva graficamente ==> OK
 -> conexão gráfica os pontos de controles ==> OK
 -> Remover crash de poucos pontos ==> OK
+-> MOSTRAR MEIO DA TELA ==> OK
+-> Ultima camera de perspectiva ==> OK
+-> Mudar eixo de rotação da camera a depender do eixo de revolução da curva ==> OK
+-> full screen ==> OK
+
+-> Curva aparecer apenas pontos
+-> Bug dos pontos/faces a mais
+-> mostrar pontos de controle sobrepostos pela curva (aumentar tamanho)
 
 
 -> Junção das curvas (cubic curve)
 -> Reta para dupla sobrando (cubic curve)
 -> Ignorar colineares na contagem dos triplos (cubic curve)
 
--> mostrar pontos de controle sobrepostos pela curva (aumentar tamanho)
--> MOSTRAR MEIO DA TELA

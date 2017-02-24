@@ -49,9 +49,10 @@ const int EVENT_INVALID = 0;
 const int EVENT_ADD_POINT = (1 << 0);
 const int EVENT_MOVE_POINT = (1 << 1);
 const int EVENT_REMOVE_POINT = (1 << 2);
+const int EVENT_MOVE_CAMERA = (1 << 3);
 int event_type = EVENT_INVALID;
 
-const int REVOLUTION_STEPS = 18;
+const int REVOLUTION_STEPS = 6;
 const int ANGLE_STEP = 360/REVOLUTION_STEPS;
 
 const int MODE_CURVE = (1 << 0);
@@ -62,7 +63,30 @@ const int AXIS_Y = (1 << 0);
 const int AXIS_X = (1 << 1);
 int revolution_axis = AXIS_Y;
 
+const int SHOW_P = (1 << 0);
+const int SHOW_E = (1 << 1);
+const int SHOW_F = (1 << 2);
+int show = SHOW_P | SHOW_E | SHOW_F;
+
+const int FULL_BOTTOM_LEFT = (1 << 0);
+const int FULL_UPPER_LEFT = (1 << 1);
+const int FULL_BOTTOM_RIGHT = (1 << 2);
+const int FULL_UPPER_RIGHT = (1 << 3);
+int full_screen = 0;
+
+point2D camera_move_point;
+
+bool waiting_double_click = false;
+bool first_click = false;
+
 const double POINT_SELECTION_ERROR_MARGIN = 0.1;
+
+glm::mat4 Model4 = glm::lookAt(
+								// glm::vec3(3.5f*cos(angle_y), 3.5f*sin(angle_x), 3.5f*sin(angle_y)*cos(angle_x)),
+								glm::vec3(3.5f, 3.5f, 3.5f),
+							    glm::vec3(0.0f, 0.0f, 0.0f),
+							    glm::vec3(0.0f, -1.0f, 0.0f));
+
 
 inline bool operator==(const point2D& a, const point2D& b) {
 	return (hypot(abs(a.X-b.X), abs(a.Y-b.Y)) <= POINT_SELECTION_ERROR_MARGIN);
@@ -125,237 +149,161 @@ list<point2D>::iterator point_exists(point2D pt) {
 
 // OPENGL
 
-void curve() {
-	int np = points.size();
-
-	int curve_points = np ? 1/T : 0;
-	cout << "curve_points: " << curve_points << endl;
-
-ObjectVA	axis_VA;
-
-	// ========== FACE ============
-
-	int used_for_control_faces = max(0, (np-1)*2);
-	int used_for_curve_faces = max(0, (curve_points-1)*2);
-	total_faces = used_for_control_faces + used_for_curve_faces;
-	cout << "used_for_control_faces: " << used_for_control_faces << endl;
-	cout << "used_for_curve_faces: " << used_for_curve_faces << endl;
-
-	axis_VA.vFace = (unsigned int *) malloc((used_for_control_faces + used_for_curve_faces)*sizeof(unsigned int));
-	if (!axis_VA.vFace)
-		exit(-1);
-
-	
-	int i;
-	for(i = 0; i < np-1; i++) { // Faces from control segments
-		axis_VA.vFace[2*i] = i;
-		axis_VA.vFace[2*i+1] = i+1;
-	}
-
-	for(int i = 0; i < curve_points-1; i++) {
-		axis_VA.vFace[used_for_control_faces + 2*i] = i;
-		axis_VA.vFace[used_for_control_faces + 2*i+1] = i+1;
-	}
-
-	
-
-	// ========== POINT ============
-
-    int used_for_control_points = 3*np;
-    int used_for_curve_points = 3*curve_points;
-	cout << "used_for_control_points: " << used_for_control_points << endl;
-	cout << "used_for_curve_points: " << used_for_curve_points << endl;   
-
-	axis_VA.vPoint 	= (float *) malloc((used_for_control_points + used_for_curve_points)*sizeof(float));
-	if (!axis_VA.vPoint)
-		exit(-1);
-
-	i = 0;
-	for(list<point2D>::iterator pt = points.begin();
-		pt != points.end(); pt++, i++) {
-		axis_VA.vPoint[3*i] 	= pt->X;
-		axis_VA.vPoint[3*i+1] 	= pt->Y;
-		axis_VA.vPoint[3*i+2] 	= 0;
-	}
-
-	vector<point2D> interpolations;
-	int p;
-	double t;
-	for(t = 0, p = 0; p < curve_points && t <= 1; t+=T, p++) {
-		interpolations.clear();
-		interpolations.reserve(points.size()); interpolations.insert(interpolations.end(), points.begin(), points.end());
-		for(int j = 0; j < np-1; j++) {
-			for(int i = 0; i < np-j-1; i++) {
-				interpolations[i].X = interpolations[i].X*(1-t) + interpolations[i+1].X*t;
-				interpolations[i].Y = interpolations[i].Y*(1-t) + interpolations[i+1].Y*t;
-			}
-		}
-		axis_VA.vPoint[used_for_control_points + 3*p] = interpolations[0].X;
-		axis_VA.vPoint[used_for_control_points + 3*p+1] = interpolations[0].Y;
-		axis_VA.vPoint[used_for_control_points + 3*p+2] = 0.0;
-	}
-
-
-	// ========== COLORS ============
-
-    int used_for_control_colors = 4*np;
-    int used_for_curve_colors = 4*curve_points;
-    cout << "used_for_control_colors: " << used_for_control_colors << endl;
-	cout << "used_for_curve_colors: " << used_for_curve_colors << endl;
-
-	
-	axis_VA.vColor 	= (float *) malloc((used_for_control_colors + used_for_curve_colors)*sizeof(float));
-	if (!axis_VA.vColor) 
-		exit(-1);
-
-	for(i = 0; i < used_for_control_colors + used_for_curve_colors; i++) {
-		if(i >= used_for_control_colors || i % 4 == 3 || i % 4 == 1)
-			axis_VA.vColor[i] = 1.0;
-		else
-			axis_VA.vColor[i] = 0.0;
-	}
-
-	axis_VA.vTextCoord 	= NULL;
-	axis_VA.vNormal 	= NULL;
-
-	glBindBuffer(	GL_ARRAY_BUFFER, axisVBO[0]);
-
-	glBufferData(	GL_ARRAY_BUFFER, (used_for_control_points + used_for_curve_points)*sizeof(float), 
-					axis_VA.vPoint, GL_DYNAMIC_DRAW);
-
-	glBindBuffer(	GL_ARRAY_BUFFER, axisVBO[1]);
-
-	glBufferData(	GL_ARRAY_BUFFER, (used_for_control_colors + used_for_curve_colors)*sizeof(float), 
-					axis_VA.vColor, GL_DYNAMIC_DRAW);
-
-	glBindBuffer(	GL_ELEMENT_ARRAY_BUFFER, axisVBO[2]);
-
-	glBufferData(	GL_ELEMENT_ARRAY_BUFFER, (used_for_control_faces + used_for_curve_faces)*sizeof(unsigned int), 
-					axis_VA.vFace, GL_DYNAMIC_DRAW);
-	
-	free(axis_VA.vPoint);
-	free(axis_VA.vColor);
-	free(axis_VA.vFace);
-}
-
 point3D rotate(point2D pt, double angle) {
-	if(revolution_axis == AXIS_Y)
+	if(mode == MODE_CURVE || revolution_axis == AXIS_Y)
 		return point3D(pt.X*cos(angle), pt.Y, pt.X*sin(angle));
 	else
 		return point3D(pt.X, pt.Y*sin(angle), pt.Y*cos(angle));
 }
 
-void revolution() {
+vector<point3D> create_curve(vector<point3D>& control_points, int num_curve_points) {
+	int np = control_points.size();
+	vector<point3D> interpolations;
+	vector<point3D> ans;
+	int p;
+	double t;
+	for(t = 0, p = 0; p < num_curve_points && t <= 1; t+=T, p++) {
+		interpolations.clear();
+		interpolations.reserve(points.size()); interpolations.insert(interpolations.end(), control_points.begin(), control_points.end());
+		for(int j = 0; j < np-1; j++) {
+			for(int i = 0; i < np-j-1; i++) {
+				interpolations[i].x = interpolations[i].x*(1-t) + interpolations[i+1].x*t;
+				interpolations[i].y = interpolations[i].y*(1-t) + interpolations[i+1].y*t;
+				interpolations[i].z = interpolations[i].z*(1-t) + interpolations[i+1].z*t;
+			}
+		}
+		ans.push_back(interpolations[0]);
+		//axis_VA.vPoint[r*3*num_curve_points + 3*p] = interpolations[0].x;
+		//axis_VA.vPoint[r*3*num_curve_points + 3*p+1] = interpolations[0].y;
+		//axis_VA.vPoint[r*3*num_curve_points + 3*p+2] = interpolations[0].z;
+	}
+
+	return ans;
+}
+
+void create_gl_structures(int used_for_faces, int used_for_points, int used_for_colors, int revolution_steps, int num_drawing_points, vector<point3D> (*point_manipulation)(vector<point3D>&, int)) {
 	int np = points.size();
 
-	//T = 0.1;
+	//int num_drawing_points = np ? 1/T : 0;
+	//cout << "num_drawing_points: " << num_drawing_points << endl;
 
-	int curve_points = np ? 1/T : 0;
-	cout << "curve_points: " << curve_points << endl;
-
-ObjectVA	axis_VA;
+ObjectVA	geometry_VA;
 
 	// ========== FACE ============
 
-	int used_for_surface_faces = max(0, 6*REVOLUTION_STEPS*(curve_points-1));
-	total_faces = used_for_surface_faces;
+	total_faces = used_for_faces;
+	//cout << "used_for_faces: " << used_for_faces << endl;
 
-	cout << "used_for_surface_faces: " << used_for_surface_faces << endl;
-
-	axis_VA.vFace = (unsigned int *) malloc(used_for_surface_faces*sizeof(unsigned int));
-	if (!axis_VA.vFace)
+	geometry_VA.vFace = (unsigned int *) malloc(used_for_faces*sizeof(unsigned int));
+	if (!geometry_VA.vFace)
 		exit(-1);
 
-	for(int r = 0; r < REVOLUTION_STEPS; r++) {
-		for(int i = 0; i < curve_points-1; i++) {
+	for(int r = 0; r < revolution_steps; r++) {
+		for(int i = 0; i < num_drawing_points-1; i++) {
 			// TRIANGLE 1
-			// cout << 6*curve_points*r + 6*i << endl;
-			axis_VA.vFace[6*(curve_points-1)*r + 6*i] = (curve_points-1)*r + i;
-			axis_VA.vFace[6*(curve_points-1)*r + 6*i+1] = (curve_points-1)*r + i+1;
-			axis_VA.vFace[6*(curve_points-1)*r + 6*i+2] = ((curve_points-1)*(r+1))%((curve_points-1)*REVOLUTION_STEPS) + i;
-
-			// TRIANGLE 2
-			axis_VA.vFace[6*(curve_points-1)*r + 6*i+3] = ((curve_points-1)*(r+1))%((curve_points-1)*REVOLUTION_STEPS) + i+1;
-			axis_VA.vFace[6*(curve_points-1)*r + 6*i+4] = ((curve_points-1)*(r+1))%((curve_points-1)*REVOLUTION_STEPS) + i;
-			axis_VA.vFace[6*(curve_points-1)*r + 6*i+5] = (curve_points-1)*r + i+1;
+			geometry_VA.vFace[6*(num_drawing_points-1)*r + 6*i] = (num_drawing_points-1)*r + i;
+			geometry_VA.vFace[6*(num_drawing_points-1)*r + 6*i+1] = (num_drawing_points-1)*r + i+1;
+			//if(revolution_steps > 1) {
+				geometry_VA.vFace[6*(num_drawing_points-1)*r + 6*i+2] = ((num_drawing_points-1)*(r+1))%((num_drawing_points-1)*revolution_steps) + i;
+			
+				// TRIANGLE 2
+				geometry_VA.vFace[6*(num_drawing_points-1)*r + 6*i+3] = ((num_drawing_points-1)*(r+1))%((num_drawing_points-1)*revolution_steps) + i+1;
+				geometry_VA.vFace[6*(num_drawing_points-1)*r + 6*i+4] = ((num_drawing_points-1)*(r+1))%((num_drawing_points-1)*revolution_steps) + i;
+				geometry_VA.vFace[6*(num_drawing_points-1)*r + 6*i+5] = (num_drawing_points-1)*r + i+1;
+			//}	
 		}
 	}
 
-
 	// ========== POINT ============
 
-    int used_for_surface_points = 3*REVOLUTION_STEPS*curve_points;
-	cout << "used_for_surface_points: " << used_for_surface_points << endl;   
+	//cout << "used_for_points: " << used_for_points << endl;   
 
-	axis_VA.vPoint 	= (float *) malloc(used_for_surface_points*sizeof(float));
-	if (!axis_VA.vPoint)
+	geometry_VA.vPoint 	= (float *) malloc(used_for_points*sizeof(float));
+	if (!geometry_VA.vPoint)
 		exit(-1);
 
-	vector<point3D> controls[REVOLUTION_STEPS];
+	vector<point3D> controls[revolution_steps];
 	double angle;
-	for(int r = 0; r < REVOLUTION_STEPS; r++) {
+	for(int r = 0; r < revolution_steps; r++) {
 		angle = r*ANGLE_STEP*PI/180;
 		for(list<point2D>::iterator pt = points.begin(); pt != points.end(); pt++) {
 			controls[r].push_back(rotate(*pt, angle));
 		}
 	}
 
-	vector<point3D> interpolations;
-	int p;
-	double t;
-	for(int r = 0; r < REVOLUTION_STEPS; r++) {
-		for(t = 0, p = 0; p < curve_points && t <= 1; t+=T, p++) {
-			interpolations.clear();
-			interpolations.reserve(controls[r].size()); interpolations.insert(interpolations.end(), controls[r].begin(), controls[r].end());
-			for(int j = 0; j < np-1; j++) {
-				for(int i = 0; i < np-j-1; i++) {
-					interpolations[i].x = interpolations[i].x*(1-t) + interpolations[i+1].x*t;
-					interpolations[i].y = interpolations[i].y*(1-t) + interpolations[i+1].y*t;
-					interpolations[i].z = interpolations[i].z*(1-t) + interpolations[i+1].z*t;
-				}
-			}
-			axis_VA.vPoint[r*3*curve_points + 3*p] = interpolations[0].x;
-			axis_VA.vPoint[r*3*curve_points + 3*p+1] = interpolations[0].y;
-			axis_VA.vPoint[r*3*curve_points + 3*p+2] = interpolations[0].z;
+
+	vector<point3D> drawing_points;
+	for(int r = 0; r < revolution_steps; r++) {
+		if(point_manipulation != nullptr)
+			drawing_points = (*point_manipulation)(controls[r], num_drawing_points);
+		else
+			drawing_points = controls[r];
+		for(int p = 0; p < drawing_points.size(); p++) {
+			geometry_VA.vPoint[r*3*num_drawing_points + 3*p] = drawing_points[p].x;
+			geometry_VA.vPoint[r*3*num_drawing_points + 3*p+1] = drawing_points[p].y;
+			geometry_VA.vPoint[r*3*num_drawing_points + 3*p+2] = drawing_points[p].z;
 		}
 	}
 
 	// ========== COLORS ============
 
-    int used_for_surface_colors = 4*REVOLUTION_STEPS*curve_points;
-	cout << "used_for_surface_colors: " << used_for_surface_colors << endl;
-
+	//cout << "used_for_colors: " << used_for_colors << endl;
 	
-	axis_VA.vColor 	= (float *) malloc(used_for_surface_colors*sizeof(float));
-	if (!axis_VA.vColor) 
+	geometry_VA.vColor 	= (float *) malloc(used_for_colors*sizeof(float));
+	if (!geometry_VA.vColor) 
 		exit(-1);
 
-	for(int i = 0; i < used_for_surface_colors; i++) {
-			axis_VA.vColor[i] = 1.0;
+	for(int i = 0; i < used_for_colors; i++) {
+			geometry_VA.vColor[i] = 1.0;
 	}
 
-	axis_VA.vTextCoord 	= NULL;
-	axis_VA.vNormal 	= NULL;
+	geometry_VA.vTextCoord 	= NULL;
+	geometry_VA.vNormal 	= NULL;
 
 	glBindBuffer(	GL_ARRAY_BUFFER, axisVBO[0]);
 
-	glBufferData(	GL_ARRAY_BUFFER, used_for_surface_points*sizeof(float), 
-					axis_VA.vPoint, GL_DYNAMIC_DRAW);
+	glBufferData(	GL_ARRAY_BUFFER, used_for_points*sizeof(float), 
+					geometry_VA.vPoint, GL_DYNAMIC_DRAW);
 
 	glBindBuffer(	GL_ARRAY_BUFFER, axisVBO[1]);
 
-	glBufferData(	GL_ARRAY_BUFFER, used_for_surface_colors*sizeof(float), 
-					axis_VA.vColor, GL_DYNAMIC_DRAW);
+	glBufferData(	GL_ARRAY_BUFFER, used_for_colors*sizeof(float), 
+					geometry_VA.vColor, GL_DYNAMIC_DRAW);
 
 	glBindBuffer(	GL_ELEMENT_ARRAY_BUFFER, axisVBO[2]);
 
-	glBufferData(	GL_ELEMENT_ARRAY_BUFFER, used_for_surface_faces*sizeof(unsigned int), 
-					axis_VA.vFace, GL_DYNAMIC_DRAW);
+	glBufferData(	GL_ELEMENT_ARRAY_BUFFER, used_for_faces*sizeof(unsigned int), 
+					geometry_VA.vFace, GL_DYNAMIC_DRAW);
 	
-	free(axis_VA.vPoint);
-	free(axis_VA.vColor);
-	free(axis_VA.vFace);
+	free(geometry_VA.vPoint);
+	free(geometry_VA.vColor);
+	free(geometry_VA.vFace);
+}
 
+void curve_controls() {
+	int np = points.size();
+	int used_for_control_faces = max(0, 6*(np-1));
+	int used_for_control_points = 3*np;
+	int used_for_control_colors = 4*np;
+	create_gl_structures(used_for_control_faces, used_for_control_points, used_for_control_colors, 1, np, nullptr);
+}
+
+void curve() {
+	int np = points.size();
+	int num_curve_points = np >= 2 ? 1/T : 0;
+	int used_for_curve_faces = max(0, 6*(num_curve_points-1));
+    int used_for_num_curve_points = 3*num_curve_points;
+    int used_for_curve_colors = 4*num_curve_points;
+	create_gl_structures(used_for_curve_faces, used_for_num_curve_points, used_for_curve_colors, 1, num_curve_points, create_curve);
+}
+
+void revolution() {
+	int np = points.size();
+	int num_curve_points = np >= 2 ? 1/T : 0;
+	int used_for_surface_faces = max(0, 6*REVOLUTION_STEPS*(num_curve_points-1));
+    int used_for_surface_points = 3*REVOLUTION_STEPS*num_curve_points;
+    int used_for_surface_colors = 4*REVOLUTION_STEPS*num_curve_points;
+	create_gl_structures(used_for_surface_faces, used_for_surface_points, used_for_surface_colors, REVOLUTION_STEPS, num_curve_points, create_curve);
 }
 
 void axis() {
@@ -446,7 +394,7 @@ ObjectVA	axis_VA;
 /// **
 /// ***********************************************************************
 
-void draw() {
+void draw(GLenum primitive) {
 
 int attrV, attrC; 
 	
@@ -461,7 +409,18 @@ int attrV, attrC;
 	glEnableVertexAttribArray(attrC);
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, axisVBO[2]);
-	glDrawElements(GL_LINE_STRIP, total_faces, GL_UNSIGNED_INT, 0);
+	if(show & SHOW_F) {
+		glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
+		glDrawElements(primitive, total_faces, GL_UNSIGNED_INT, 0);
+	}
+	if(show & SHOW_E) {
+		glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+		glDrawElements(primitive, total_faces, GL_UNSIGNED_INT, 0);
+	}
+	if(show & SHOW_P) {
+		glPolygonMode( GL_FRONT_AND_BACK, GL_POINT );
+		glDrawElements(primitive, total_faces, GL_UNSIGNED_INT, 0);
+	}
 
 	glDisableVertexAttribArray(attrV);
 	glDisableVertexAttribArray(attrC);
@@ -509,6 +468,21 @@ void keyboard (unsigned char key, int x, int y) {
 		case 'y'	:
 						revolution_axis = AXIS_Y;
 						break;
+
+		case 'F'	:
+		case 'f'	:
+						show = show^SHOW_F;
+						break;
+
+		case 'E'	:
+		case 'e'	:
+						show = show^SHOW_E;
+						break;
+
+		case 'P'	:
+		case 'p'	:
+						show = show^SHOW_P;
+						break;
 		}
 	glutPostRedisplay();
 }
@@ -518,11 +492,16 @@ void keyboard (unsigned char key, int x, int y) {
 /* ************************************************************************* */
 
 point2D get_real_coords(double x, double y) {
-	 cout << x/(double)winWdth*20-10 << " " << -(y/(double)winHeight*20-10) << endl;
+	//cout << x/(double)winWdth*20-10 << " " << -(y/(double)winHeight*20-10) << endl;
 	return { x/(double)winWdth*20-10, -(y/(double)winHeight*20-10) };
 }
 
-void handle_initialization(int button, point2D real_coords) {
+void close_double_click(int value) {
+	waiting_double_click = false;
+}
+
+void handle_initialization(int button, int x, int y) {
+	point2D real_coords = get_real_coords(x, y);
 	switch(button) {
 		case GLUT_LEFT_BUTTON:
 			if(mode & MODE_CURVE) {
@@ -539,6 +518,18 @@ void handle_initialization(int button, point2D real_coords) {
 						event_point = add_point_before(real_coords, it);
 					}
 				}
+			} else if(mode & MODE_REVOLUTION) {
+				if(full_screen & FULL_UPPER_RIGHT || (x > winWdth/2 && y < winHeight/2 && !full_screen)) {
+					event_type = EVENT_MOVE_CAMERA;
+					camera_move_point = point2D(x, y);
+				} else
+					event_type = EVENT_INVALID;
+				
+				if(!waiting_double_click) {
+					waiting_double_click = true;
+					first_click = true;
+    				glutTimerFunc(250, close_double_click, 1);
+    			}
 			}
 		break;
 		default:
@@ -547,7 +538,8 @@ void handle_initialization(int button, point2D real_coords) {
 	}
 }
 
-void handle_closing(int button, point2D real_coords) {
+void handle_closing(int button, int x, int y) {
+	point2D real_coords = get_real_coords(x, y);
 	switch(button) {
 		case GLUT_LEFT_BUTTON:
 			switch(event_type) {
@@ -560,6 +552,35 @@ void handle_closing(int button, point2D real_coords) {
 				case EVENT_ADD_POINT:
 					move_point(event_point, real_coords);
 				break;
+				case EVENT_MOVE_CAMERA:
+					cout << (y-camera_move_point.Y)/100 << endl;
+					cout << (x-camera_move_point.X)/100 << endl;
+
+					//camera_angle_y += x-camera_move_point.X;
+					//camera_angle_x += y-camera_move_point.Y;
+					//while((abs(camera_angle_y) > 180)) camera_angle_y += -(camera_angle_y/abs(camera_angle_y))*360;
+					//while((abs(camera_angle_x) > 180)) camera_angle_x += -(camera_angle_x/abs(camera_angle_x))*360;
+
+    				Model4 = glm::rotate(Model4, (glm::mediump_float)(y-camera_move_point.Y)/100, glm::vec3(1, 0, 0));
+    				Model4 = glm::rotate(Model4, (glm::mediump_float)(x-camera_move_point.X)/100, glm::vec3(0, 1, 0));
+				
+    			default:
+    				if(!first_click) {
+    					if(waiting_double_click) {
+    						waiting_double_click = false;
+    						if(full_screen & FULL_BOTTOM_LEFT || (x < winWdth/2 && y > winHeight/2 && !full_screen))
+    							full_screen ^= FULL_BOTTOM_LEFT;
+    						else if(full_screen & FULL_UPPER_LEFT || (x < winWdth/2 && y < winHeight/2 && !full_screen))
+    							full_screen ^= FULL_UPPER_LEFT;
+    						else if(full_screen & FULL_BOTTOM_RIGHT || (x > winWdth/2 && y > winHeight/2 && !full_screen))
+    							full_screen ^= FULL_BOTTOM_RIGHT;
+    						else if(full_screen & FULL_UPPER_RIGHT || (x > winWdth/2 && y < winHeight/2 && !full_screen))
+    							full_screen ^= FULL_UPPER_RIGHT;
+    					}
+    				} else
+    					first_click = false;
+				break;
+
 			}
 		break;
 	}
@@ -567,10 +588,10 @@ void handle_closing(int button, point2D real_coords) {
 
 void mouse(int button, int state, int x, int y) {
 	if(!state)
-		handle_initialization(button, get_real_coords(x, y));
+		handle_initialization(button, x, y);
 	else
-		handle_closing(button, get_real_coords(x, y));
-	if(mode & MODE_CURVE) glutPostRedisplay();
+		handle_closing(button, x, y);
+	glutPostRedisplay();
 }
 
 /* ************************************************************************* */
@@ -581,20 +602,131 @@ void display(void) {
 	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); 
 
-	glm::mat4 MVP 	= glm::ortho(	-10.0, 10.0, -10.0, 10.0, 0.0, 10.0); 
-	
+	//PROJECTION
+	glm::mat4 orthogonal = glm::ortho(	-10.0, 10.0, -10.0, 10.0, -10.0, 10.0);
+	glm::mat4 perspective = glm::perspective(10.0f, 1.0f, 0.1f, 40.0f);
+    
+    //VIEW
+    glm::mat4 View = glm::mat4(1.);
+    //View = glm::translate(View, glm::vec3(2.0f,4.0f, -25.0f));
+
+    //MODEL
+    glm::mat4 Model1 = glm::rotate(glm::mat4(1.0), 0.f, glm::vec3(1, 0, 0));
+    glm::mat4 Model2 = glm::rotate(glm::mat4(1.0), -1.58f, glm::vec3((revolution_axis == AXIS_Y), (revolution_axis == AXIS_X), 0));
+    glm::mat4 Model3 = glm::rotate(glm::mat4(1.0), 1.58f, glm::vec3((revolution_axis == AXIS_Y), (revolution_axis == AXIS_X), 0));
+    // glm::mat4 Model4 = glm::rotate(glm::mat4(1.0), -1.f, glm::vec3(1, 1, 0));
+
+    glm::mat4 MVP1 = orthogonal * View * Model1;
+    glm::mat4 MVP2 = orthogonal * View * Model2;
+    glm::mat4 MVP3 = orthogonal * View * Model3;
+    
+    //double angle_y = camera_angle_y*PI/180;
+    //double angle_x = camera_angle_x*PI/180;
+    glm::mat4 MVP4 = perspective * View * Model4;
+
     if (drawRef) {
     	glUseProgram(axisShader);
 		int loc = glGetUniformLocation( axisShader, "uMVP" );
-		glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP));
-		if(mode & MODE_CURVE)
+		if(mode & MODE_CURVE) {
+			glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP1));
+			glViewport(0, 0, winWdth, winHeight);
+
+			curve_controls();
+    		draw(GL_LINE_STRIP);
+			
 			curve();
-		else
+	    	draw(GL_LINE_STRIP);
+
+			axis();
+    		draw(GL_LINE_STRIP);
+
+		} else {
 			revolution();
-    	draw();
-		axis();
-    	draw();
-    	}
+		
+			if(!full_screen || full_screen & FULL_BOTTOM_LEFT) {
+				if(!full_screen)
+					glViewport(0, 0, winWdth/2, winHeight/2);
+				else
+					glViewport(0, 0, winWdth, winHeight);
+
+				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP1));
+    			draw(GL_TRIANGLES);
+    		}
+
+			if(!full_screen || full_screen & FULL_BOTTOM_RIGHT) {
+				if(!full_screen)
+	    			glViewport(winWdth/2, 0, winWdth/2, winHeight/2);
+				else
+					glViewport(0, 0, winWdth, winHeight);
+
+				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP2));
+	    		draw(GL_TRIANGLES);
+	    	}
+
+	    	if(!full_screen || full_screen & FULL_UPPER_LEFT) {
+				if(!full_screen)
+		    		glViewport(0, winHeight/2, winWdth/2, winHeight/2);
+				else
+					glViewport(0, 0, winWdth, winHeight);
+				
+				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP3));
+	    		draw(GL_TRIANGLES);
+	    	}
+
+	    	if(!full_screen || full_screen & FULL_UPPER_RIGHT) {
+				if(!full_screen)
+		    		glViewport(winWdth/2, winHeight/2, winWdth/2, winHeight/2);
+				else
+					glViewport(0, 0, winWdth, winHeight);
+				
+				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP4));
+	    		draw(GL_TRIANGLES);
+    		}
+
+			axis();
+
+			if(!full_screen || full_screen & FULL_BOTTOM_LEFT) {
+				if(!full_screen)
+					glViewport(0, 0, winWdth/2, winHeight/2);
+				else
+					glViewport(0, 0, winWdth, winHeight);
+
+				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP1));
+    			draw(GL_LINE_STRIP);
+    		}
+
+			if(!full_screen || full_screen & FULL_BOTTOM_RIGHT) {
+				if(!full_screen)
+	    			glViewport(winWdth/2, 0, winWdth/2, winHeight/2);
+				else
+					glViewport(0, 0, winWdth, winHeight);
+
+				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP2));
+	    		draw(GL_LINE_STRIP);
+	    	}
+
+	    	if(!full_screen || full_screen & FULL_UPPER_LEFT) {
+				if(!full_screen)
+		    		glViewport(0, winHeight/2, winWdth/2, winHeight/2);
+				else
+					glViewport(0, 0, winWdth, winHeight);
+				
+				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP3));
+	    		draw(GL_LINE_STRIP);
+	    	}
+
+	    	if(!full_screen || full_screen & FULL_UPPER_RIGHT) {
+				if(!full_screen)
+		    		glViewport(winWdth/2, winHeight/2, winWdth/2, winHeight/2);
+				else
+					glViewport(0, 0, winWdth, winHeight);
+				
+				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP4));
+	    		draw(GL_LINE_STRIP);
+    		}
+
+		}
+    }
 	
 	glutSwapBuffers();
 }
@@ -639,7 +771,6 @@ void initShaders(void) {
 /* ************************************************************************* */
 
 int main(int argc, char *argv[]) {
-	//cin >> T;
 
 	glutInit(&argc, argv);
 	glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
@@ -649,15 +780,6 @@ int main(int argc, char *argv[]) {
 	glutReshapeFunc(reshape);
 	glutKeyboardFunc(keyboard);
 	glutMouseFunc(mouse);
-
-	//int n;
-    //cin >> n;
-
-    //double x, y;
-    //for(int i = 0; i < n; i++) {
-    //    cin >> x >> y;
-    //    points.push_back({x,y});
-    //}
 
 	initGL();
 
