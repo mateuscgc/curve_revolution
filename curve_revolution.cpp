@@ -33,6 +33,7 @@ double T = 0.01;
 list <point2D> points;
 
 GLuint 	axisShader;
+GLuint 	phongShader;
 
 GLuint 	axisVBO[3];
 
@@ -86,6 +87,9 @@ glm::mat4 Model4 = glm::lookAt(
 								glm::vec3(3.5f, 3.5f, 3.5f),
 							    glm::vec3(0.0f, 0.0f, 0.0f),
 							    glm::vec3(0.0f, -1.0f, 0.0f));
+
+glm::vec3 light_pos = glm::vec3(1.5f, 3.5f, 6.5f);
+glm::vec3 light_color = glm::vec3(1.f, 0.f, 1.f);
 
 
 inline bool operator==(const point2D& a, const point2D& b) {
@@ -394,17 +398,17 @@ ObjectVA	axis_VA;
 /// **
 /// ***********************************************************************
 
-void draw(GLenum primitive) {
+void draw(GLenum primitive, GLuint shader) {
 
 int attrV, attrC; 
 	
 	glBindBuffer(GL_ARRAY_BUFFER, axisVBO[0]);
-	attrV = glGetAttribLocation(axisShader, "aPosition");
+	attrV = glGetAttribLocation(shader, "aPosition");
 	glVertexAttribPointer(attrV, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(attrV);
 
 	glBindBuffer(GL_ARRAY_BUFFER, axisVBO[1]);
-	attrC = glGetAttribLocation(axisShader, "aColor");
+	attrC = glGetAttribLocation(shader, "aColor");
 	glVertexAttribPointer(attrC, 4, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(attrC);
 
@@ -604,7 +608,7 @@ void display(void) {
 
 	//PROJECTION
 	glm::mat4 orthogonal = glm::ortho(	-10.0, 10.0, -10.0, 10.0, -10.0, 10.0);
-	glm::mat4 perspective = glm::perspective(10.0f, 1.0f, 0.1f, 40.0f);
+	glm::mat4 perspective = glm::perspective(10.0f, 1.0f, 0.1f, 30.0f);
     
     //VIEW
     glm::mat4 View = glm::mat4(1.);
@@ -616,32 +620,53 @@ void display(void) {
     glm::mat4 Model3 = glm::rotate(glm::mat4(1.0), 1.58f, glm::vec3((revolution_axis == AXIS_Y), (revolution_axis == AXIS_X), 0));
     // glm::mat4 Model4 = glm::rotate(glm::mat4(1.0), -1.f, glm::vec3(1, 1, 0));
 
-    glm::mat4 MVP1 = orthogonal * View * Model1;
-    glm::mat4 MVP2 = orthogonal * View * Model2;
-    glm::mat4 MVP3 = orthogonal * View * Model3;
+    //glm::mat4 MVP1 = orthogonal * View * Model1;
+    //glm::mat4 MVP2 = orthogonal * View * Model2;
+    //glm::mat4 MVP3 = orthogonal * View * Model3;
     
     //double angle_y = camera_angle_y*PI/180;
     //double angle_x = camera_angle_x*PI/180;
-    glm::mat4 MVP4 = perspective * View * Model4;
+    //glm::mat4 MVP4 = perspective * View * Model4;
 
     if (drawRef) {
-    	glUseProgram(axisShader);
-		int loc = glGetUniformLocation( axisShader, "uMVP" );
+    	
 		if(mode & MODE_CURVE) {
-			glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP1));
+
+			glUseProgram(axisShader);
+			int projection_loc = glGetUniformLocation( axisShader, "uProjectionMatrix" );
+			int view_loc = glGetUniformLocation( axisShader, "uViewMatrix" );
+			int model_loc = glGetUniformLocation( axisShader, "uModelMatrix" );
+			int normalMatrix_loc = glGetUniformLocation( axisShader, "uNormalMatrix" );
+			glUniformMatrix4fv(projection_loc, 1, GL_FALSE, glm::value_ptr(orthogonal));
+			glUniformMatrix4fv(view_loc, 1, GL_FALSE, glm::value_ptr(View));
+			
+			glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(Model1));
 			glViewport(0, 0, winWdth, winHeight);
 
 			curve_controls();
-    		draw(GL_LINE_STRIP);
+    		draw(GL_LINE_STRIP, axisShader);
 			
 			curve();
-	    	draw(GL_LINE_STRIP);
+	    	draw(GL_LINE_STRIP, axisShader);
 
 			axis();
-    		draw(GL_LINE_STRIP);
+    		draw(GL_LINE_STRIP, axisShader);
 
 		} else {
+			glUseProgram(phongShader);
+			int projection_loc = glGetUniformLocation( phongShader, "uProjectionMatrix" );
+			int view_loc = glGetUniformLocation( phongShader, "uViewMatrix" );
+			int model_loc = glGetUniformLocation( phongShader, "uModelMatrix" );
+			int normalMatrix_loc = glGetUniformLocation( phongShader, "uNormalMatrix" );
+			glUniformMatrix4fv(projection_loc, 1, GL_FALSE, glm::value_ptr(orthogonal));
+			glUniformMatrix4fv(view_loc, 1, GL_FALSE, glm::value_ptr(View));
 			revolution();
+
+			int light_loc = glGetUniformLocation(phongShader, "uLPos");
+			glUniform3fv(light_loc, 1, glm::value_ptr(light_pos));
+
+			light_loc = glGetUniformLocation(phongShader, "uLColor");
+			glUniform3fv(light_loc, 1, glm::value_ptr(light_color));
 		
 			if(!full_screen || full_screen & FULL_BOTTOM_LEFT) {
 				if(!full_screen)
@@ -649,8 +674,9 @@ void display(void) {
 				else
 					glViewport(0, 0, winWdth, winHeight);
 
-				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP1));
-    			draw(GL_TRIANGLES);
+				glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(Model1));
+				glUniformMatrix3fv(normalMatrix_loc, 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(glm::mat3(Model1*View)))));
+    			draw(GL_TRIANGLES, phongShader);
     		}
 
 			if(!full_screen || full_screen & FULL_BOTTOM_RIGHT) {
@@ -659,8 +685,9 @@ void display(void) {
 				else
 					glViewport(0, 0, winWdth, winHeight);
 
-				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP2));
-	    		draw(GL_TRIANGLES);
+				glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(Model2));
+				glUniformMatrix3fv(normalMatrix_loc, 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(glm::mat3(Model2*View)))));
+	    		draw(GL_TRIANGLES, phongShader);
 	    	}
 
 	    	if(!full_screen || full_screen & FULL_UPPER_LEFT) {
@@ -669,8 +696,9 @@ void display(void) {
 				else
 					glViewport(0, 0, winWdth, winHeight);
 				
-				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP3));
-	    		draw(GL_TRIANGLES);
+				glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(Model3));
+				glUniformMatrix3fv(normalMatrix_loc, 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(glm::mat3(Model3*View)))));
+	    		draw(GL_TRIANGLES, phongShader);
 	    	}
 
 	    	if(!full_screen || full_screen & FULL_UPPER_RIGHT) {
@@ -679,9 +707,19 @@ void display(void) {
 				else
 					glViewport(0, 0, winWdth, winHeight);
 				
-				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP4));
-	    		draw(GL_TRIANGLES);
+				glUniformMatrix4fv(projection_loc, 1, GL_FALSE, glm::value_ptr(perspective));
+				glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(Model4));
+				glUniformMatrix3fv(normalMatrix_loc, 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(glm::mat3(Model4*View)))));
+	    		draw(GL_TRIANGLES, phongShader);
     		}
+
+    		glUseProgram(axisShader);
+			projection_loc = glGetUniformLocation( axisShader, "uProjectionMatrix" );
+			view_loc = glGetUniformLocation( axisShader, "uViewMatrix" );
+			model_loc = glGetUniformLocation( axisShader, "uModelMatrix" );
+			normalMatrix_loc = glGetUniformLocation( axisShader, "uNormalMatrix" );
+			glUniformMatrix4fv(projection_loc, 1, GL_FALSE, glm::value_ptr(orthogonal));
+			glUniformMatrix4fv(view_loc, 1, GL_FALSE, glm::value_ptr(View));
 
 			axis();
 
@@ -691,8 +729,9 @@ void display(void) {
 				else
 					glViewport(0, 0, winWdth, winHeight);
 
-				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP1));
-    			draw(GL_LINE_STRIP);
+				glUniformMatrix4fv(projection_loc, 1, GL_FALSE, glm::value_ptr(orthogonal));
+				glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(Model1));
+    			draw(GL_LINE_STRIP, axisShader);
     		}
 
 			if(!full_screen || full_screen & FULL_BOTTOM_RIGHT) {
@@ -701,8 +740,8 @@ void display(void) {
 				else
 					glViewport(0, 0, winWdth, winHeight);
 
-				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP2));
-	    		draw(GL_LINE_STRIP);
+				glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(Model2));
+	    		draw(GL_LINE_STRIP, axisShader);
 	    	}
 
 	    	if(!full_screen || full_screen & FULL_UPPER_LEFT) {
@@ -711,8 +750,8 @@ void display(void) {
 				else
 					glViewport(0, 0, winWdth, winHeight);
 				
-				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP3));
-	    		draw(GL_LINE_STRIP);
+				glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(Model3));
+	    		draw(GL_LINE_STRIP, axisShader);
 	    	}
 
 	    	if(!full_screen || full_screen & FULL_UPPER_RIGHT) {
@@ -721,10 +760,10 @@ void display(void) {
 				else
 					glViewport(0, 0, winWdth, winHeight);
 				
-				glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(MVP4));
-	    		draw(GL_LINE_STRIP);
+				glUniformMatrix4fv(projection_loc, 1, GL_FALSE, glm::value_ptr(perspective));
+				glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(Model4));
+	    		draw(GL_LINE_STRIP, axisShader);
     		}
-
 		}
     }
 	
@@ -762,6 +801,7 @@ void initShaders(void) {
 
     // Load shaders and use the resulting shader program
     axisShader = InitShader( "axisShader.vert", "axisShader.frag" );
+    phongShader = InitShader( "phongShader.vert", "phongShader.frag" );
 }
 
 /* ************************************************************************* */
