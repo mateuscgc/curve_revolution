@@ -16,6 +16,7 @@
 
 #include "myDataStructures.h"
 #include "initShaders.h"
+#include "loadpng.h"
 					
 using namespace std;
 
@@ -35,7 +36,7 @@ list <point2D> points;
 GLuint 	axisShader;
 GLuint 	phongShader;
 
-GLuint 	axisVBO[3];
+GLuint 	axisVBO[5];
 
 int		winWdth 	= 800,
 		winHeight	= 800,
@@ -53,7 +54,7 @@ const int EVENT_REMOVE_POINT = (1 << 2);
 const int EVENT_MOVE_CAMERA = (1 << 3);
 int event_type = EVENT_INVALID;
 
-const int REVOLUTION_STEPS = 6;
+const int REVOLUTION_STEPS = 180;
 const int ANGLE_STEP = 360/REVOLUTION_STEPS;
 
 const int MODE_CURVE = (1 << 0);
@@ -67,6 +68,7 @@ int revolution_axis = AXIS_Y;
 const int SHOW_P = (1 << 0);
 const int SHOW_E = (1 << 1);
 const int SHOW_F = (1 << 2);
+const int SHOW_T = (1 << 3);
 int show = SHOW_P | SHOW_E | SHOW_F;
 
 const int FULL_BOTTOM_LEFT = (1 << 0);
@@ -89,8 +91,48 @@ glm::mat4 Model4 = glm::lookAt(
 							    glm::vec3(0.0f, -1.0f, 0.0f));
 
 glm::vec3 light_pos = glm::vec3(1.5f, 3.5f, 6.5f);
-glm::vec3 light_color = glm::vec3(1.f, 0.f, 1.f);
+glm::vec3 light_color = glm::vec3(0.8f, 0.8f, 0.8f);
 
+//int noise3DTexSize = 128;
+
+//const char* filename = argv[1];
+
+// Load file and decode image.
+  
+
+
+void LoadTexture(const char * filename) {
+	std::vector<unsigned char> image;
+  	unsigned width, height;
+  	unsigned error = lodepng::decode(image, width, height, filename);
+
+	// If there's an error, display it.
+	if(error != 0) {
+	    std::cout << "error " << error << ": " << lodepng_error_text(error) << std::endl;
+	}
+
+	// Texture size must be power of two for the primitive OpenGL version this is written for. Find next power of two.
+	size_t u2 = 1; while(u2 < width) u2 *= 2;
+	size_t v2 = 1; while(v2 < height) v2 *= 2;
+	// Ratio for power of two version compared to actual version, to render the non power of two image with proper size.
+	double u3 = (double)width / u2;
+	double v3 = (double)height / v2;
+
+	// Make power of two version of the image.
+	std::vector<unsigned char> image2(u2 * v2 * 4);
+	for(size_t y = 0; y < height; y++)
+		for(size_t x = 0; x < width; x++)
+			for(size_t c = 0; c < 4; c++) {
+				image2[4 * u2 * y + 4 * x + c] = image[4 * width * y + 4 * x + c];
+			}
+
+	// Enable the texture for OpenGL.
+	glEnable(GL_TEXTURE_2D);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); //GL_NEAREST = no smoothing
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexImage2D(GL_TEXTURE_2D, 0, 4, u2, v2, 0, GL_RGBA, GL_UNSIGNED_BYTE, &image2[0]);
+
+}
 
 inline bool operator==(const point2D& a, const point2D& b) {
 	return (hypot(abs(a.X-b.X), abs(a.Y-b.Y)) <= POINT_SELECTION_ERROR_MARGIN);
@@ -116,7 +158,7 @@ bool in_interval(double a, double l1, double l2) {
 }
 
 bool point_in_segment(list<point2D>::iterator it, point2D pt) {
-	cout << "cross " << cross_product(it, pt) << endl;
+	//cout << "cross " << cross_product(it, pt) << endl;
     return (abs(cross_product(it, pt)) < 1 && in_interval(pt.X, prev(it)->X, it->X) && in_interval(pt.Y, prev(it)->Y, it->Y));
 }
 
@@ -177,15 +219,12 @@ vector<point3D> create_curve(vector<point3D>& control_points, int num_curve_poin
 			}
 		}
 		ans.push_back(interpolations[0]);
-		//axis_VA.vPoint[r*3*num_curve_points + 3*p] = interpolations[0].x;
-		//axis_VA.vPoint[r*3*num_curve_points + 3*p+1] = interpolations[0].y;
-		//axis_VA.vPoint[r*3*num_curve_points + 3*p+2] = interpolations[0].z;
 	}
 
 	return ans;
 }
 
-void create_gl_structures(int used_for_faces, int used_for_points, int used_for_colors, int revolution_steps, int num_drawing_points, vector<point3D> (*point_manipulation)(vector<point3D>&, int)) {
+void create_gl_structures(int used_for_faces, int used_for_points, int used_for_colors, int revolution_steps, int num_drawing_points, vector<point3D> (*point_manipulation)(vector<point3D>&, int), glm::vec3 color) {
 	int np = points.size();
 
 	//int num_drawing_points = np ? 1/T : 0;
@@ -249,20 +288,72 @@ ObjectVA	geometry_VA;
 		}
 	}
 
+	// ========== NORMAL ============
+
+	//cout << "used_for_points: " << used_for_points << endl;   
+
+	geometry_VA.vNormal = (float *) malloc(used_for_points*sizeof(float));
+	if (!geometry_VA.vNormal)
+		exit(-1);
+
+	glm::vec3 normal;
+	for(int r = 0; r < revolution_steps; r++) {
+		for(int p = 1; p < num_drawing_points-1; p++) {
+			normal = normalize(glm::vec3(
+						geometry_VA.vPoint[r*3*num_drawing_points + 3*p-3] +
+						geometry_VA.vPoint[r*3*num_drawing_points + 3*p+3] -
+						2*geometry_VA.vPoint[r*3*num_drawing_points + 3*p],
+
+						geometry_VA.vPoint[r*3*num_drawing_points + 3*p-2] +
+						geometry_VA.vPoint[r*3*num_drawing_points + 3*p+4] -
+						2*geometry_VA.vPoint[r*3*num_drawing_points + 3*p+1],
+
+						geometry_VA.vPoint[r*3*num_drawing_points + 3*p-1] +
+						geometry_VA.vPoint[r*3*num_drawing_points + 3*p+5] -
+						2*geometry_VA.vPoint[r*3*num_drawing_points + 3*p+2]));
+
+			geometry_VA.vNormal[r*3*num_drawing_points + 3*p] = normal.x;
+
+			geometry_VA.vNormal[r*3*num_drawing_points + 3*p+1] = normal.y;
+
+			geometry_VA.vNormal[r*3*num_drawing_points + 3*p+2] = normal.z;
+
+		}
+	}
+
+	// ========== TEXTURE COORDINATES ============
+
+
+	geometry_VA.vTextCoord = (float *) malloc((used_for_points/3*2)*sizeof(float));
+	if (!geometry_VA.vNormal)
+		exit(-1);
+
+	for(int r = 0; r < revolution_steps; r++) {
+		for(int p = 0; p < num_drawing_points; p++) {
+
+			geometry_VA.vTextCoord[r*2*num_drawing_points + 2*p] = (revolution_axis == AXIS_Y ? (double)r/(double)revolution_steps : (double)p/(double)num_drawing_points);
+			geometry_VA.vNormal[r*2*num_drawing_points + 2*p+1] = (revolution_axis == AXIS_X ? (double)r/(double)revolution_steps : (double)p/(double)num_drawing_points);
+
+		}
+	}
+
 	// ========== COLORS ============
 
 	//cout << "used_for_colors: " << used_for_colors << endl;
 	
-	geometry_VA.vColor 	= (float *) malloc(used_for_colors*sizeof(float));
+	geometry_VA.vColor 	= (float *) malloc(used_for_colors*sizeof(float)) ;
 	if (!geometry_VA.vColor) 
 		exit(-1);
 
 	for(int i = 0; i < used_for_colors; i++) {
-			geometry_VA.vColor[i] = 1.0;
+			if(i % 4 == 3)
+				geometry_VA.vColor[i] = 1.0;
+			else
+				geometry_VA.vColor[i] = color[i%4];
 	}
 
-	geometry_VA.vTextCoord 	= NULL;
-	geometry_VA.vNormal 	= NULL;
+	//geometry_VA.vTextCoord 	= NULL;
+	//geometry_VA.vNormal 	= NULL;
 
 	glBindBuffer(	GL_ARRAY_BUFFER, axisVBO[0]);
 
@@ -278,10 +369,22 @@ ObjectVA	geometry_VA;
 
 	glBufferData(	GL_ELEMENT_ARRAY_BUFFER, used_for_faces*sizeof(unsigned int), 
 					geometry_VA.vFace, GL_DYNAMIC_DRAW);
+
+	glBindBuffer(	GL_ARRAY_BUFFER, axisVBO[3]);
+
+	glBufferData(	GL_ARRAY_BUFFER, used_for_points*sizeof(float), 
+					geometry_VA.vNormal, GL_DYNAMIC_DRAW);
+
+	glBindBuffer(	GL_ARRAY_BUFFER, axisVBO[4]);
+
+	glBufferData(	GL_ARRAY_BUFFER, used_for_points/3*2*sizeof(float), 
+					geometry_VA.vTextCoord, GL_DYNAMIC_DRAW);
 	
 	free(geometry_VA.vPoint);
+	free(geometry_VA.vNormal);
 	free(geometry_VA.vColor);
 	free(geometry_VA.vFace);
+	free(geometry_VA.vTextCoord);
 }
 
 void curve_controls() {
@@ -289,7 +392,7 @@ void curve_controls() {
 	int used_for_control_faces = max(0, 6*(np-1));
 	int used_for_control_points = 3*np;
 	int used_for_control_colors = 4*np;
-	create_gl_structures(used_for_control_faces, used_for_control_points, used_for_control_colors, 1, np, nullptr);
+	create_gl_structures(used_for_control_faces, used_for_control_points, used_for_control_colors, 1, np, nullptr, glm::vec3(0.2, 0.8, 0.4));
 }
 
 void curve() {
@@ -298,7 +401,7 @@ void curve() {
 	int used_for_curve_faces = max(0, 6*(num_curve_points-1));
     int used_for_num_curve_points = 3*num_curve_points;
     int used_for_curve_colors = 4*num_curve_points;
-	create_gl_structures(used_for_curve_faces, used_for_num_curve_points, used_for_curve_colors, 1, num_curve_points, create_curve);
+	create_gl_structures(used_for_curve_faces, used_for_num_curve_points, used_for_curve_colors, 1, num_curve_points, create_curve, glm::vec3(0.8, 0.2, 0.4));
 }
 
 void revolution() {
@@ -307,7 +410,7 @@ void revolution() {
 	int used_for_surface_faces = max(0, 6*REVOLUTION_STEPS*(num_curve_points-1));
     int used_for_surface_points = 3*REVOLUTION_STEPS*num_curve_points;
     int used_for_surface_colors = 4*REVOLUTION_STEPS*num_curve_points;
-	create_gl_structures(used_for_surface_faces, used_for_surface_points, used_for_surface_colors, REVOLUTION_STEPS, num_curve_points, create_curve);
+	create_gl_structures(used_for_surface_faces, used_for_surface_points, used_for_surface_colors, REVOLUTION_STEPS, num_curve_points, create_curve, glm::vec3(0.8, 0.2, 0.4));
 }
 
 void axis() {
@@ -400,33 +503,62 @@ ObjectVA	axis_VA;
 
 void draw(GLenum primitive, GLuint shader) {
 
-int attrV, attrC; 
+int attrV, attrC, attrN; 
 	
 	glBindBuffer(GL_ARRAY_BUFFER, axisVBO[0]);
 	attrV = glGetAttribLocation(shader, "aPosition");
 	glVertexAttribPointer(attrV, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(attrV);
 
+
+	if(shader == phongShader) {
+		glBindBuffer(GL_ARRAY_BUFFER, axisVBO[3]);
+		attrN = glGetAttribLocation(shader, "aNormal");
+		glVertexAttribPointer(attrN, 3, GL_FLOAT, GL_FALSE, 0, 0);
+		glEnableVertexAttribArray(attrN);
+
+		glBindBuffer(GL_ARRAY_BUFFER, axisVBO[4]);
+		attrN = glGetAttribLocation(shader, "aTexCoord");
+		glVertexAttribPointer(attrN, 2, GL_FLOAT, GL_FALSE, 0, 0);
+		glEnableVertexAttribArray(attrN);
+
+	}
+
 	glBindBuffer(GL_ARRAY_BUFFER, axisVBO[1]);
 	attrC = glGetAttribLocation(shader, "aColor");
 	glVertexAttribPointer(attrC, 4, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(attrC);
 
+	int poly_loc = glGetUniformLocation( phongShader, "uPoly" );
+	int fill_loc = glGetUniformLocation( shader, "uFill" );
+
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, axisVBO[2]);
-	if(show & SHOW_F) {
+	if(mode & MODE_REVOLUTION && show & SHOW_T) {
+		glUniform1i(fill_loc, 0);	
+		glUniform1f(poly_loc, 1.f);
 		glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
 		glDrawElements(primitive, total_faces, GL_UNSIGNED_INT, 0);
-	}
-	if(show & SHOW_E) {
-		glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
-		glDrawElements(primitive, total_faces, GL_UNSIGNED_INT, 0);
-	}
-	if(show & SHOW_P) {
-		glPolygonMode( GL_FRONT_AND_BACK, GL_POINT );
-		glDrawElements(primitive, total_faces, GL_UNSIGNED_INT, 0);
+	} else {
+		glUniform1i(fill_loc, 1);
+		if(mode & MODE_REVOLUTION && show & (SHOW_F | SHOW_T)) {
+			glUniform1f(poly_loc, 1.f);
+			glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
+			glDrawElements(primitive, total_faces, GL_UNSIGNED_INT, 0);
+		}
+		if(mode & MODE_CURVE || show & SHOW_E) {
+			glUniform1f(poly_loc, 0.7f);
+			glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+			glDrawElements(primitive, total_faces, GL_UNSIGNED_INT, 0);
+		}
+		if(mode & MODE_REVOLUTION && show & SHOW_P) {
+			glUniform1f(poly_loc, 0.3f);
+			glPolygonMode( GL_FRONT_AND_BACK, GL_POINT );
+			glDrawElements(primitive, total_faces, GL_UNSIGNED_INT, 0);
+		}
 	}
 
 	glDisableVertexAttribArray(attrV);
+	glDisableVertexAttribArray(attrN);
 	glDisableVertexAttribArray(attrC);
 
 	glBindBuffer(GL_ARRAY_BUFFER, 0); 
@@ -456,39 +588,53 @@ void keyboard (unsigned char key, int x, int y) {
 						break;
 		case 'A'	: 	
 		case 'a'	: 	drawRef = !drawRef;
+						glutPostRedisplay();
 						break;
 
 		case 'R'	:
 		case 'r'	:
 						mode = mode^MODE_CURVE^MODE_REVOLUTION;
+						glutPostRedisplay();
 						break;
 
 		case 'X'	:
 		case 'x'	:
 						revolution_axis = AXIS_X;
+						glutPostRedisplay();
 						break;
 
 		case 'Y'	:
 		case 'y'	:
 						revolution_axis = AXIS_Y;
+						glutPostRedisplay();
 						break;
 
 		case 'F'	:
 		case 'f'	:
 						show = show^SHOW_F;
+						show = show & ~SHOW_T;
+						glutPostRedisplay();
 						break;
 
 		case 'E'	:
 		case 'e'	:
 						show = show^SHOW_E;
+						glutPostRedisplay();
 						break;
 
 		case 'P'	:
 		case 'p'	:
 						show = show^SHOW_P;
+						glutPostRedisplay();
+						break;
+
+		case 'T'	:
+		case 't'	:
+						show = show^SHOW_T;
+						show = show & ~SHOW_F;
+						glutPostRedisplay();
 						break;
 		}
-	glutPostRedisplay();
 }
 
 /* ************************************************************************* */
@@ -557,16 +703,16 @@ void handle_closing(int button, int x, int y) {
 					move_point(event_point, real_coords);
 				break;
 				case EVENT_MOVE_CAMERA:
-					cout << (y-camera_move_point.Y)/100 << endl;
-					cout << (x-camera_move_point.X)/100 << endl;
+					//cout << (y-camera_move_point.Y)/100 << endl;
+					//cout << (x-camera_move_point.X)/100 << endl;
 
 					//camera_angle_y += x-camera_move_point.X;
 					//camera_angle_x += y-camera_move_point.Y;
 					//while((abs(camera_angle_y) > 180)) camera_angle_y += -(camera_angle_y/abs(camera_angle_y))*360;
 					//while((abs(camera_angle_x) > 180)) camera_angle_x += -(camera_angle_x/abs(camera_angle_x))*360;
 
-    				Model4 = glm::rotate(Model4, (glm::mediump_float)(y-camera_move_point.Y)/100, glm::vec3(1, 0, 0));
-    				Model4 = glm::rotate(Model4, (glm::mediump_float)(x-camera_move_point.X)/100, glm::vec3(0, 1, 0));
+    				Model4 *= glm::rotate(glm::mat4(), (glm::mediump_float)(y-camera_move_point.Y)/100, glm::vec3(1, 0, 0));
+    				Model4 *= glm::rotate(glm::mat4(), (glm::mediump_float)(x-camera_move_point.X)/100, glm::vec3(0, 1, 0));
 				
     			default:
     				if(!first_click) {
@@ -608,7 +754,7 @@ void display(void) {
 
 	//PROJECTION
 	glm::mat4 orthogonal = glm::ortho(	-10.0, 10.0, -10.0, 10.0, -10.0, 10.0);
-	glm::mat4 perspective = glm::perspective(10.0f, 1.0f, 0.1f, 30.0f);
+	glm::mat4 perspective = glm::perspective(9.0f, 1.0f, 0.1f, 30.0f);
     
     //VIEW
     glm::mat4 View = glm::mat4(1.);
@@ -658,6 +804,7 @@ void display(void) {
 			int view_loc = glGetUniformLocation( phongShader, "uViewMatrix" );
 			int model_loc = glGetUniformLocation( phongShader, "uModelMatrix" );
 			int normalMatrix_loc = glGetUniformLocation( phongShader, "uNormalMatrix" );
+			int texture_loc = glGetUniformLocation( phongShader, "Noise" );
 			glUniformMatrix4fv(projection_loc, 1, GL_FALSE, glm::value_ptr(orthogonal));
 			glUniformMatrix4fv(view_loc, 1, GL_FALSE, glm::value_ptr(View));
 			revolution();
@@ -729,7 +876,6 @@ void display(void) {
 				else
 					glViewport(0, 0, winWdth, winHeight);
 
-				glUniformMatrix4fv(projection_loc, 1, GL_FALSE, glm::value_ptr(orthogonal));
 				glUniformMatrix4fv(model_loc, 1, GL_FALSE, glm::value_ptr(Model1));
     			draw(GL_LINE_STRIP, axisShader);
     		}
@@ -777,7 +923,7 @@ void display(void) {
 void initGL(void) {
 
 	glClearColor(0.0, 0.0, 0.0, 0.0);	
-	glPointSize(3.0);
+	glPointSize(2.0);
 	
 	if (glewInit()) {
 		cout << "Unable to initialize GLEW ... exiting" << endl;
@@ -821,9 +967,12 @@ int main(int argc, char *argv[]) {
 	glutKeyboardFunc(keyboard);
 	glutMouseFunc(mouse);
 
+
 	initGL();
 
-	glGenBuffers(3, axisVBO);
+	LoadTexture("wood-texture.png");
+
+	glGenBuffers(5, axisVBO);
 	
 	initShaders();
 	

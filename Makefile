@@ -15,7 +15,7 @@ LIBPATH = -L/opt/local/lib
 LDFLAGS = -lGLEW -lGL -lGLU -lglut -lm
 # LDFLAGS = -framework OpenGL -framework GLUT -lglew 
 
-OBJFILES = initShaders.o
+OBJFILES = initShaders.o loadpng.o
 
 # compile rules
 .c.o:	$*.h
@@ -33,7 +33,7 @@ all:	curve_revolution
 # 	@echo "Linking ...."
 # 	$(CXX)  $(CXXFLAG) $(INCFLAGS) $(LIBPATH) $^ $(LDFLAGS) -o $@
 	
-curve_revolution:	initShaders.o curve_revolution.o
+curve_revolution:	initShaders.o loadpng.o curve_revolution.o
 	@echo "Linking ...."
 	$(CXX)  $(CXXFLAG) $(INCFLAGS) $(LIBPATH) $^ $(LDFLAGS) -o $@ 
 		
